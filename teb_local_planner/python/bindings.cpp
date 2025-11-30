@@ -19,6 +19,9 @@
 #include "teb_local_planner/timed_elastic_band.h"
 #include "teb_local_planner/optimal_planner.h"
 #include "teb_local_planner/homotopy_class_planner.h"
+#include "teb_local_planner/costmap_converter.h"
+
+#include <pybind11/numpy.h>
 
 namespace py = pybind11;
 using namespace teb_local_planner;
@@ -212,6 +215,56 @@ PYBIND11_MODULE(pyteb, m) {
         .def("clear", &ViaPointContainerWrapper::clear)
         .def("size", &ViaPointContainerWrapper::size)
         .def("__len__", &ViaPointContainerWrapper::size);
+
+    // ==================== CostmapConverter ====================
+    py::class_<CostmapConverterConfig>(m, "CostmapConverterConfig")
+        .def(py::init<>())
+        .def_readwrite("max_distance", &CostmapConverterConfig::max_distance,
+            "DBSCAN: maximum distance to neighbors [m]")
+        .def_readwrite("min_pts", &CostmapConverterConfig::min_pts,
+            "DBSCAN: minimum number of points that define a cluster")
+        .def_readwrite("max_pts", &CostmapConverterConfig::max_pts,
+            "DBSCAN: maximum number of points per cluster")
+        .def_readwrite("min_keypoint_separation", &CostmapConverterConfig::min_keypoint_separation,
+            "Douglas-Peucker: simplification threshold [m]");
+
+    py::class_<CostmapConverter>(m, "CostmapConverter")
+        .def(py::init<const CostmapConverterConfig&>(),
+             py::arg("config") = CostmapConverterConfig())
+        .def("set_config", &CostmapConverter::setConfig)
+        .def("get_config", &CostmapConverter::getConfig, py::return_value_policy::reference)
+        .def("compute", [](CostmapConverter& self,
+                           py::array_t<uint8_t, py::array::c_style | py::array::forcecast>& costmap,
+                           double resolution,
+                           double origin_x, double origin_y,
+                           uint8_t threshold) {
+            py::buffer_info buf = costmap.request();
+            if (buf.ndim != 2)
+                throw std::runtime_error("costmap must be 2D array");
+            self.compute(
+                static_cast<uint8_t*>(buf.ptr),
+                static_cast<int>(buf.shape[1]),  // width (cols)
+                static_cast<int>(buf.shape[0]),  // height (rows)
+                resolution, origin_x, origin_y, threshold
+            );
+        }, py::arg("costmap"), py::arg("resolution"),
+           py::arg("origin_x"), py::arg("origin_y"),
+           py::arg("threshold") = 200,
+           "Process costmap and extract polygon obstacles")
+        .def("add_to_obstacles", [](CostmapConverter& self, ObstacleContainer& obstacles) {
+            self.addToObstacles(*obstacles.ptr());
+        }, py::arg("obstacles"),
+           "Add extracted obstacles to an ObstacleContainer")
+        .def("num_polygons", &CostmapConverter::numPolygons,
+            "Get number of extracted polygons")
+        .def("num_noise_points", &CostmapConverter::numNoisePoints,
+            "Get number of noise points (isolated points)")
+        .def("get_polygons", &CostmapConverter::getPolygons,
+            py::return_value_policy::reference_internal,
+            "Get extracted polygons")
+        .def("get_noise_points", &CostmapConverter::getNoisePoints,
+            py::return_value_policy::reference_internal,
+            "Get noise points");
 
     // ==================== Robot Footprint Models ====================
     py::class_<BaseRobotFootprintModel, std::shared_ptr<BaseRobotFootprintModel>>(m, "BaseRobotFootprintModel")

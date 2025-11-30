@@ -31,6 +31,7 @@ add_library(teb_local_planner SHARED
    src/teb_config.cpp
    src/homotopy_class_planner.cpp
    src/graph_search.cpp
+   src/costmap_converter.cpp
 )
 
 target_include_directories(teb_local_planner PUBLIC
