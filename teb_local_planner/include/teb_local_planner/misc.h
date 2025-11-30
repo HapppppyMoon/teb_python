@@ -34,40 +34,47 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *
  * Author: Christoph Rösmann
+ * Modified: ROS dependencies removed for standalone use
  *********************************************************************/
 
 #ifndef MISC_H
 #define MISC_H
 
-#include <builtin_interfaces/msg/duration.hpp>
-
 #include <Eigen/Core>
 
+#include <cmath>
 #include <exception>
 #include <type_traits>
-
-#include <rclcpp/logging.hpp>
+#include <iostream>
+#include <vector>
+#include <cstdio>
 
 namespace teb_local_planner
 {
 #define SMALL_NUM 0.00000001
 
-//! Symbols for left/none/right rotations      
+//! Symbols for left/none/right rotations
 enum class RotType { left, none, right };
 
-/** 
+//! Duration struct (replaces builtin_interfaces::msg::Duration)
+struct Duration {
+  int32_t sec;
+  uint32_t nanosec;
+};
+
+/**
  * @brief Check whether two variables (double) are close to each other
  * @param a the first value to compare
  * @param b the second value to compare
  * @param epsilon precision threshold
  * @return \c true if |a-b| < epsilon, false otherwise
  */
-inline bool is_close(double a, double b, double epsilon = 1e-4) 
-{ 
-  return std::fabs(a - b) < epsilon; 
+inline bool is_close(double a, double b, double epsilon = 1e-4)
+{
+  return std::fabs(a - b) < epsilon;
 }
 
-/** 
+/**
  * @brief Return the average angle of an arbitrary number of given angles [rad]
  * @param angles vector containing all angles
  * @return average / mean angle, that is normalized to [-pi, pi]
@@ -162,53 +169,61 @@ inline double cross2d(const V1& v1, const V2& v2)
      return v1.x()*v2.y() - v2.x()*v1.y();
 }
 
-/** 
+/**
  * @brief Helper function that returns the const reference to a value defined by either its raw pointer type or const reference.
- * 
+ *
  * Return a constant reference for boths input variants (pointer or reference).
  * @remarks Makes only sense in combination with the overload getConstReference(const T& val).
  * @param ptr pointer of type T
- * @tparam T arbitrary type 
+ * @tparam T arbitrary type
  * @return  If \c T is a pointer, return const *T (leading to const T&), otherwise const T& with out pointer-to-ref conversion
  */
 template<typename T>
 inline const T& get_const_reference(const T* ptr) {return *ptr;}
 
-/** 
+/**
  * @brief Helper function that returns the const reference to a value defined by either its raw pointer type or const reference.
- * 
+ *
  * Return a constant reference for boths input variants (pointer or reference).
  * @remarks Makes only sense in combination with the overload getConstReference(const T* val).
  * @param val
  * @param dummy SFINAE helper variable
- * @tparam T arbitrary type 
+ * @tparam T arbitrary type
  * @return  If \c T is a pointer, return const *T (leading to const T&), otherwise const T& with out pointer-to-ref conversion
  */
 template<typename T>
 inline const T& get_const_reference(const T& val, typename std::enable_if_t<!std::is_pointer<T>::value, T>* dummy = nullptr) {return val;}
 
-inline builtin_interfaces::msg::Duration durationFromSec(double t_sec)
+/**
+ * @brief Create Duration from seconds
+ * @param t_sec time in seconds
+ * @return Duration struct
+ */
+inline Duration durationFromSec(double t_sec)
 {
   int32_t sec;
   uint32_t nsec;
   sec = static_cast<int32_t>(floor(t_sec));
-  nsec = static_cast<int32_t>(std::round((t_sec - sec) * 1e9));
+  nsec = static_cast<uint32_t>(std::round((t_sec - sec) * 1e9));
   // avoid rounding errors
   sec += (nsec / 1000000000l);
   nsec %= 1000000000l;
 
-  builtin_interfaces::msg::Duration duration;
+  Duration duration;
   duration.sec = sec;
   duration.nanosec = nsec;
   return duration;
 }
 
+/**
+ * @brief Exception for TEB assertion failures
+ */
 struct TebAssertionFailureException : public std::runtime_error
 {
     TebAssertionFailureException(const std::string &msg)
         : std::runtime_error(msg)
     {
-        RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"), msg.c_str());
+        std::cerr << "[TEB ERROR] " << msg << std::endl;
     }
 };
 
@@ -241,6 +256,12 @@ void teb_assert_msg_impl(const T expression, ARGS ...args) {
 }
 
 #define TEB_ASSERT_MSG(expression, ...) teb_assert_msg_impl(expression, __VA_ARGS__)
+
+// Logging macros
+#define TEB_INFO(msg) std::cout << "[TEB INFO] " << msg << std::endl
+#define TEB_WARN(msg) std::cerr << "[TEB WARN] " << msg << std::endl
+#define TEB_ERROR(msg) std::cerr << "[TEB ERROR] " << msg << std::endl
+#define TEB_DEBUG(msg) std::cout << "[TEB DEBUG] " << msg << std::endl
 
 } // namespace teb_local_planner
 

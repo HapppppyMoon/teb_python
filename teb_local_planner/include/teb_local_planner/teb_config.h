@@ -34,19 +34,17 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *
  * Author: Christoph Rösmann
+ * Modified: ROS dependencies removed for standalone use
  *********************************************************************/
 
 #ifndef TEB_CONFIG_H_
 #define TEB_CONFIG_H_
 
-#include <nav2_util/lifecycle_node.hpp>
 #include <memory>
-#include <rclcpp/rclcpp.hpp>
+#include <mutex>
 #include <Eigen/Core>
 #include <Eigen/StdVector>
-#include <nav_2d_utils/parameters.hpp>
 #include "teb_local_planner/robot_footprint_model.h"
-#include <nav2_costmap_2d/footprint.hpp>
 
 // Definitions
 #define USE_ANALYTIC_JACOBI // if available for a specific edge, use analytic jacobi
@@ -61,17 +59,8 @@ class TebConfig
 {
 public:
   using UniquePtr = std::unique_ptr<TebConfig>;
-  
-  std::string odom_topic; //!< Topic name of the odometry message, provided by the robot driver or simulator
-  std::string map_frame; //!< Global planning frame
-  std::string node_name; //!< node name used for parameter event callback
 
   RobotFootprintModelPtr robot_model;
-  std::string model_name;
-  double radius;
-  std::vector<double> line_start, line_end;
-  double front_offset, front_radius, rear_offset, rear_radius;
-  std::string footprint_string;
 
   //! Trajectory related parameters
   struct Trajectory
@@ -116,7 +105,6 @@ public:
     bool cmd_angle_instead_rotvel; //!< Substitute the rotational velocity in the commanded velocity message by the corresponding steering angle (check 'axles_distance')
     bool is_footprint_dynamic; //<! If true, updated the footprint before checking trajectory feasibility
     bool use_proportional_saturation; //<! If true, reduce all twists components (linear x and y, and angular z) proportionally if any exceed its corresponding bounds, instead of saturating each one individually
-    double transform_tolerance = 0.5; //<! Tolerance when querying the TF Tree for a transformation (seconds)
   } robot; //!< Robot related parameters
 
   //! Goal tolerance related parameters
@@ -139,9 +127,6 @@ public:
     bool legacy_obstacle_association; //!< If true, the old association strategy is used (for each obstacle, find the nearest TEB pose), otherwise the new one (for each teb pose, find only "relevant" obstacles).
     double obstacle_association_force_inclusion_factor; //!< The non-legacy obstacle association technique tries to connect only relevant obstacles with the discretized trajectory during optimization, all obstacles within a specifed distance are forced to be included (as a multiple of min_obstacle_dist), e.g. choose 2.0 in order to consider obstacles within a radius of 2.0*min_obstacle_dist.
     double obstacle_association_cutoff_factor; //!< See obstacle_association_force_inclusion_factor, but beyond a multiple of [value]*min_obstacle_dist all obstacles are ignored during optimization. obstacle_association_force_inclusion_factor is processed first.
-    std::string costmap_converter_plugin; //!< Define a plugin name of the costmap_converter package (costmap cells are converted to points/lines/polygons)
-    bool costmap_converter_spin_thread; //!< If \c true, the costmap converter invokes its callback queue in a different thread
-    int costmap_converter_rate; //!< The rate that defines how often the costmap_converter plugin processes the current costmap (the value should not be much higher than the costmap update rate)
     double obstacle_proximity_ratio_max_vel; //!< Ratio of the maximum velocities used as an upper bound when reducing the speed due to the proximity to a static obstacles
     double obstacle_proximity_lower_bound; //!< Distance to a static obstacle for which the velocity should be lower
     double obstacle_proximity_upper_bound; //!< Distance to a static obstacle for which the velocity should be higher
@@ -234,23 +219,9 @@ public:
 
   /**
   * @brief Construct the TebConfig using default values.
-  * @warning If the \b rosparam server or/and \b dynamic_reconfigure (rqt_reconfigure) node are used,
-  *	     the default variables will be overwritten: \n
-  *	     E.g. if \e base_local_planner is utilized as plugin for the navigation stack, the initialize() method will register a
-  * 	     dynamic_reconfigure server. A subset (not all but most) of the parameters are considered for dynamic modifications.
-  * 	     All parameters considered by the dynamic_reconfigure server (and their \b default values) are
-  * 	     set in \e PROJECT_SRC/cfg/TebLocalPlannerReconfigure.cfg. \n
-  * 	     In addition the rosparam server can be queried to get parameters e.g. defiend in a launch file.
-  * 	     The plugin source (or a possible binary source) can call loadRosParamFromNodeHandle() to update the parameters.
-  * 	     In \e summary, default parameters are loaded in the following order (the right one overrides the left ones): \n
-  * 		<b>TebConfig Constructor defaults << dynamic_reconfigure defaults << rosparam server defaults</b>
   */
   TebConfig()
   {
-
-    odom_topic = "odom";
-    map_frame = "odom";
-
     // Trajectory
 
     trajectory.teb_autosize = true;
@@ -272,7 +243,7 @@ public:
     trajectory.publish_feedback = false;
     trajectory.min_resolution_collision_check_angular = M_PI;
     trajectory.control_look_ahead_poses = 1;
-    
+
     // Robot
 
     robot.max_vel_x = 0.4;
@@ -280,9 +251,9 @@ public:
     robot.max_vel_y = 0.0;
     robot.max_vel_theta = 0.3;
     robot.base_max_vel_x = robot.max_vel_x;
-    robot.base_max_vel_x_backwards = robot.base_max_vel_x_backwards;
-    robot.base_max_vel_y = robot.base_max_vel_y;
-    robot.base_max_vel_theta = robot.base_max_vel_theta;
+    robot.base_max_vel_x_backwards = robot.max_vel_x_backwards;
+    robot.base_max_vel_y = robot.max_vel_y;
+    robot.base_max_vel_theta = robot.max_vel_theta;
     robot.acc_lim_x = 0.5;
     robot.acc_lim_y = 0.5;
     robot.acc_lim_theta = 0.5;
@@ -309,9 +280,6 @@ public:
     obstacles.legacy_obstacle_association = false;
     obstacles.obstacle_association_force_inclusion_factor = 1.5;
     obstacles.obstacle_association_cutoff_factor = 5;
-    obstacles.costmap_converter_plugin = "";
-    obstacles.costmap_converter_spin_thread = true;
-    obstacles.costmap_converter_rate = 5;
     obstacles.obstacle_proximity_ratio_max_vel = 1;
     obstacles.obstacle_proximity_lower_bound = 0;
     obstacles.obstacle_proximity_upper_bound = 0.5;
@@ -351,6 +319,7 @@ public:
     hcp.enable_multithreading = true;
     hcp.simple_exploration = false;
     hcp.max_number_classes = 5;
+    hcp.max_number_plans_in_current_class = 1;
     hcp.selection_cost_hysteresis = 1.0;
     hcp.selection_prefer_initial_plan = 0.95;
     hcp.selection_obst_cost_scale = 100.0;
@@ -387,23 +356,11 @@ public:
     recovery.oscillation_filter_duration = 10;
     recovery.divergence_detection_enable = false;
     recovery.divergence_detection_max_chi_squared = 10;
-  }
-  
-  void declareParameters(const nav2_util::LifecycleNode::SharedPtr, const std::string name);
 
-  /**
-   * @brief Load parmeters from the ros param server.
-   * @param nh const reference to the local rclcpp::Node::SharedPtr
-   */
-  void loadRosParamFromNodeHandle(const nav2_util::LifecycleNode::SharedPtr nh, const std::string name);
-  
-  /**
-   * @brief Callback executed when a paramter change is detected
-   * @param parameters list of changed parameters
-   */
-  rcl_interfaces::msg::SetParametersResult
-    dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
-  
+    // Default robot model
+    robot_model = std::make_shared<PointRobotFootprint>();
+  }
+
   /**
    * @brief Check parameters and print warnings in case of discrepancies
    *
@@ -411,13 +368,7 @@ public:
    * about some improper uses.
    */
   void checkParameters() const;
-  
-  /**
-   * @brief Check if some deprecated parameters are found and print warnings
-   * @param nh const reference to the local rclcpp::Node::SharedPtr
-   */
-  void checkDeprecated(const nav2_util::LifecycleNode::SharedPtr nh, const std::string name) const;
-  
+
   /**
    * @brief Return the internal config mutex
    */
@@ -425,7 +376,6 @@ public:
 
 private:
   std::mutex config_mutex_; //!< Mutex for config accesses and changes
-  rclcpp::Logger logger_{rclcpp::get_logger("TEBLocalPlanner")};
 };
 } // namespace teb_local_planner
 

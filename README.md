@@ -1,61 +1,104 @@
-teb_local_planner ROS Package
-=============================
+# TEB Local Planner (Standalone C++ with Pybind11)
 
-The teb_local_planner package implements a plugin to the base_local_planner of the 2D navigation stack. 
-The underlying method called Timed Elastic Band locally optimizes the robot's trajectory with respect to trajectory execution time, 
+The teb_local_planner implements a Timed Elastic Band approach for trajectory optimization.
+The underlying method locally optimizes the robot's trajectory with respect to trajectory execution time,
 separation from obstacles and compliance with kinodynamic constraints at runtime.
 
-Refer to http://wiki.ros.org/teb_local_planner for more information and tutorials.
+**This is a standalone C++ version without ROS dependencies, with Python bindings via pybind11.**
 
-Build status of the *melodic-devel* branch:
-- ROS Buildfarm (Melodic): [![Melodic Status](http://build.ros.org/buildStatus/icon?job=Mdev__teb_local_planner__ubuntu_bionic_amd64)](http://build.ros.org/job/Mdev__teb_local_planner__ubuntu_bionic_amd64/)
+## Features
 
-### Port to ROS2
-This branch is the teb_local_planner package ported to ROS2(Dashing Diademata). Currently, it is currently compatible with [Navigation2(master branch)](https://github.com/ros-planning/navigation2/tree/master)([226f06c](https://github.com/ros-planning/navigation2/commit/226f06ce282c727ca240ce8be0cb4b093e26343b)). You can test teb_local_planner with Navigation2 and TurtleBot3 simulation by launching the following command.
+- Time-optimal trajectory planning
+- Obstacle avoidance (Point, Circular, Line, Polygon)
+- Dynamic obstacle support
+- Differential drive / Car-like robot support
+- Homotopy Class Planning (multiple trajectory exploration)
+- Python bindings (pybind11)
+
+## Dependencies
+
+- Eigen3
+- Boost
+- g2o (graph optimization)
+- SuiteSparse (CSparse)
+- pybind11 (optional, for Python bindings)
+
+### Ubuntu Installation
+
+```bash
+sudo apt install libeigen3-dev libboost-dev libsuitesparse-dev pybind11-dev
+
+# g2o (build from source)
+git clone https://github.com/RainerKuemmerle/g2o.git
+cd g2o && mkdir build && cd build
+cmake .. && make -j$(nproc)
+sudo make install
 ```
-ros2 launch teb_local_planner teb_tb3_simulation_launch.py
+
+## Build
+
+```bash
+git clone <repo_url>
+cd teb_local_planner
+mkdir build && cd build
+cmake ../teb_local_planner
+make -j$(nproc)
 ```
 
-## Citing the Software
+Output:
+- `libteb_local_planner.so` - C++ library
+- `pyteb.cpython-*.so` - Python module
 
-*Since a lot of time and effort has gone into the development, please cite at least one of the following publications if you are using the planner for your own research:*
+## Python Usage
 
-- C. Rösmann, F. Hoffmann and T. Bertram: Integrated online trajectory planning and optimization in distinctive topologies, Robotics and Autonomous Systems, Vol. 88, 2017, pp. 142–153.
-- C. Rösmann, W. Feiten, T. Wösch, F. Hoffmann and T. Bertram: Trajectory modification considering dynamic constraints of autonomous robots. Proc. 7th German Conference on Robotics, Germany, Munich, May 2012, pp 74–79.
-- C. Rösmann, W. Feiten, T. Wösch, F. Hoffmann and T. Bertram: Efficient trajectory optimization using a sparse model. Proc. IEEE European Conference on Mobile Robots, Spain, Barcelona, Sept. 2013, pp. 138–143.
-- C. Rösmann, F. Hoffmann and T. Bertram: Planning of Multiple Robot Trajectories in Distinctive Topologies, Proc. IEEE European Conference on Mobile Robots, UK, Lincoln, Sept. 2015.
-- C. Rösmann, F. Hoffmann and T. Bertram: Kinodynamic Trajectory Optimization and Control for Car-Like Robots, IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), Vancouver, BC, Canada, Sept. 2017.
+```python
+import sys
+sys.path.insert(0, '/path/to/build')
+import pyteb
 
-<a href="https://www.buymeacoffee.com/croesmann" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/lato-black.png" alt="Buy Me A Coffee" height="31px" width="132px" ></a>
+# Configuration
+cfg = pyteb.TebConfig()
+cfg.robot.max_vel_x = 0.5
+cfg.robot.max_vel_theta = 1.0
+cfg.robot_model = pyteb.CircularRobotFootprint(0.2)
 
-## Videos
+# Obstacles
+obstacles = pyteb.ObstacleContainer()
+obstacles.add(pyteb.CircularObstacle(2.0, 0.0, 0.5))
 
-The left of the following videos presents features of the package and shows examples from simulation and real robot situations.
-Some spoken explanations are included in the audio track of the video. 
-The right one demonstrates features introduced in version 0.2 (supporting car-like robots and costmap conversion). Please watch the left one first.
+# Plan
+planner = pyteb.TebOptimalPlanner(cfg, obstacles)
+start = pyteb.PoseSE2(0, 0, 0)
+goal = pyteb.PoseSE2(5, 0, 0)
+planner.plan(start, goal, pyteb.Velocity2D())
 
-<a href="http://www.youtube.com/watch?feature=player_embedded&v=e1Bw6JOgHME" target="_blank"><img src="http://img.youtube.com/vi/e1Bw6JOgHME/0.jpg" 
-alt="teb_local_planner - An Optimal Trajectory Planner for Mobile Robots" width="240" height="180" border="10" /></a>
-<a href="http://www.youtube.com/watch?feature=player_embedded&v=o5wnRCzdUMo" target="_blank"><img src="http://img.youtube.com/vi/o5wnRCzdUMo/0.jpg" 
-alt="teb_local_planner - Car-like Robots and Costmap Conversion" width="240" height="180" border="10" /></a>
+# Result
+teb = planner.teb()
+print(f"Poses: {teb.size_poses()}")
+print(f"Time: {teb.get_sum_of_all_time_diffs():.2f}s")
+```
 
-## License
+## Visualization Test
 
-The *teb_local_planner* package is licensed under the BSD license.
-It depends on other ROS packages, which are listed in the package.xml. They are also BSD licensed.
+```bash
+cd teb_local_planner/python
+python3 test_visualization.py --mode static               # Static visualization
+python3 test_visualization.py --mode homotopy             # Homotopy classes
+python3 test_visualization.py --mode homotopy_interactive # Interactive demo
+```
 
-Some third-party dependencies are included that are licensed under different terms:
- - *Eigen*, MPL2 license, http://eigen.tuxfamily.org
- - *libg2o* / *g2o* itself is licensed under BSD, but the enabled *csparse_extension* is licensed under LGPL3+, 
-   https://github.com/RainerKuemmerle/g2o. [*CSparse*](http://www.cise.ufl.edu/research/sparse/CSparse/) is included as part of the *SuiteSparse* collection, http://www.suitesparse.com. 
- - *Boost*, Boost Software License, http://www.boost.org
+## Main Classes
 
-All packages included are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the licenses for more details.
-
-## Requirements
-
-Install dependencies (listed in the *package.xml* and *CMakeLists.txt* file) using *rosdep*:
-
-    rosdep install teb_local_planner
+| Class | Description |
+|-------|-------------|
+| `TebConfig` | Planner configuration |
+| `TebOptimalPlanner` | Single trajectory optimization |
+| `HomotopyClassPlanner` | Multiple trajectory exploration |
+| `PoseSE2` | 2D pose (x, y, theta) |
+| `Velocity2D` | Velocity (vx, vy, omega) |
+| `ObstacleContainer` | Obstacle container |
 
 
+## Acknowledgements
+
+This project is based on [teb_local_planner](https://github.com/rst-tu-dortmund/teb_local_planner).

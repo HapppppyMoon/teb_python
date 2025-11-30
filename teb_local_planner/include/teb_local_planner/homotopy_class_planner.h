@@ -49,17 +49,10 @@
 #include <iterator>
 #include <random>
 
-#include <visualization_msgs/msg/marker.hpp>
-#include <geometry_msgs/msg/point.hpp>
-#include <std_msgs/msg/color_rgba.hpp>
-
-#include <rclcpp/rclcpp.hpp>
-
 #include "teb_local_planner/planner_interface.h"
 #include "teb_local_planner/teb_config.h"
 #include "teb_local_planner/obstacles.h"
 #include "teb_local_planner/optimal_planner.h"
-#include "teb_local_planner/visualization.h"
 #include "teb_local_planner/robot_footprint_model.h"
 #include "teb_local_planner/equivalence_relations.h"
 #include "teb_local_planner/graph_search.h"
@@ -72,14 +65,13 @@ namespace teb_local_planner
 inline std::complex<long double> getCplxFromVertexPosePtr(const VertexPose* pose)
 {
   return std::complex<long double>(pose->x(), pose->y());
-};
+}
 
-
-//!< Inline function used for calculateHSignature() in combination with geometry_msgs::msg::PoseStamped
-inline std::complex<long double> getCplxFromMsgPoseStamped(const geometry_msgs::msg::PoseStamped& pose)
+//!< Inline function used for calculateHSignature() in combination with PoseSE2
+inline std::complex<long double> getCplxFromPoseSE2(const PoseSE2& pose)
 {
-  return std::complex<long double>(pose.pose.position.x, pose.pose.position.y);
-};
+  return std::complex<long double>(pose.x(), pose.y());
+}
 
 /**
  * @class HomotopyClassPlanner
@@ -118,15 +110,12 @@ public:
 
   /**
    * @brief Construct and initialize the HomotopyClassPlanner
-   * @param node Shared pointer for rclcpp::Node
    * @param cfg Const reference to the TebConfig class for internal parameters
    * @param obstacles Container storing all relevant obstacles (see Obstacle)
-   * @param robot_model Shared pointer to the robot shape model used for optimization (optional)
-   * @param visualization Shared pointer to the TebVisualization class (optional)
    * @param via_points Container storing via-points (optional)
    */
-  HomotopyClassPlanner(nav2_util::LifecycleNode::SharedPtr node, const TebConfig& cfg, ObstContainer* obstacles = NULL,
-                       TebVisualizationPtr visualization = TebVisualizationPtr(), const ViaPointContainer* via_points = NULL);
+  HomotopyClassPlanner(const TebConfig& cfg, ObstContainer* obstacles = nullptr,
+                       const ViaPointContainer* via_points = nullptr);
 
   /**
    * @brief Destruct the HomotopyClassPlanner.
@@ -135,14 +124,12 @@ public:
 
   /**
    * @brief Initialize the HomotopyClassPlanner
-   * @param node Shared pointer for rclcpp::Node
    * @param cfg Const reference to the TebConfig class for internal parameters
    * @param obstacles Container storing all relevant obstacles (see Obstacle)
-   * @param visualization Shared pointer to the TebVisualization class (optional)
    * @param via_points Container storing via-points (optional)
    */
-  void initialize(nav2_util::LifecycleNode::SharedPtr node, const TebConfig& cfg, ObstContainer* obstacles = NULL,
-                  TebVisualizationPtr visualization = TebVisualizationPtr(), const ViaPointContainer* via_points = NULL);
+  void initialize(const TebConfig& cfg, ObstContainer* obstacles = nullptr,
+                  const ViaPointContainer* via_points = nullptr);
 
   /** @name Plan a trajectory */
   //@{
@@ -153,27 +140,13 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized
    * according to an initial reference plan (given as a container of poses).
    * @warning The current implementation extracts only the start and goal pose and calls the overloaded plan()
-   * @param initial_plan vector of geometry_msgs::msg::PoseStamped (must be valid until clearPlanner() is called!)
-   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x, linear.y (holonomic) and angular.z are used)
+   * @param initial_plan vector of PoseSE2 (must be valid until clearPlanner() is called!)
+   * @param start_vel Current start velocity (e.g. the velocity of the robot)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
    */
-  virtual bool plan(const std::vector<geometry_msgs::msg::PoseStamped>& initial_plan, const geometry_msgs::msg::Twist* start_vel = NULL, bool free_goal_vel=false);
-
-  /**
-   * @brief Plan a trajectory between a given start and goal pose (tf::Pose version).
-   *
-   * Provide this method to create and optimize a trajectory that is initialized between a given start and goal pose.
-   * @param start tf::Pose containing the start pose of the trajectory
-   * @param goal tf::Pose containing the goal pose of the trajectory
-   * @param start_vel Current start velocity (e.g. the velocity of the robot, only linear.x, linear.y (holonomic) and angular.z are used)
-   * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
-   *		      otherwise the final velocity will be zero (default: false)
-   * @return \c true if planning was successful, \c false otherwise
-   */
-  // tf2 doesn't have tf::Pose
-//  virtual bool plan(const tf::Pose& start, const tf::Pose& goal, const geometry_msgs::msg::Twist* start_vel = NULL, bool free_goal_vel=false);
+  virtual bool plan(const std::vector<PoseSE2>& initial_plan, const Velocity2D* start_vel = nullptr, bool free_goal_vel=false) override;
 
   /**
    * @brief Plan a trajectory between a given start and goal pose.
@@ -181,12 +154,12 @@ public:
    * Provide this method to create and optimize a trajectory that is initialized between a given start and goal pose.
    * @param start PoseSE2 containing the start pose of the trajectory
    * @param goal PoseSE2 containing the goal pose of the trajectory
-   * @param start_vel Initial velocity at the start pose (twist message containing the translational and angular velocity).
+   * @param start_vel Initial velocity at the start pose.
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed,
    *		      otherwise the final velocity will be zero (default: false)
    * @return \c true if planning was successful, \c false otherwise
    */
-  virtual bool plan(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::msg::Twist* start_vel = NULL, bool free_goal_vel=false);
+  virtual bool plan(const PoseSE2& start, const PoseSE2& goal, const Velocity2D* start_vel = nullptr, bool free_goal_vel=false) override;
 
   /**
    * @brief Get the velocity command from a previously optimized plan to control the robot at the current sampling interval.
@@ -197,7 +170,7 @@ public:
    * @param[in] look_ahead_poses index of the final pose used to compute the velocity command.
    * @return \c true if command is valid, \c false otherwise
    */
-  virtual bool getVelocityCommand(double& vx, double& vy, double& omega, int look_ahead_poses) const;
+  virtual bool getVelocityCommand(double& vx, double& vy, double& omega, int look_ahead_poses) const override;
 
   /**
    * @brief Access current best trajectory candidate (that relates to the "best" homotopy class).
@@ -212,18 +185,17 @@ public:
   /**
    * @brief Check whether the planned trajectory is feasible or not.
    *
-   * This method currently checks only that the trajectory, or a part of the trajectory is collision free.
-   * Obstacles are here represented as costmap instead of the internal ObstacleContainer.
-   * @param costmap_model Pointer to the costmap model
-   * @param footprint_spec The specification of the footprint of the robot in world coordinates
-   * @param inscribed_radius The radius of the inscribed circle of the robot
-   * @param circumscribed_radius The radius of the circumscribed circle of the robot
+   * This method checks that the trajectory is collision free using the robot footprint model.
+   * @param robot_model Robot footprint model for collision checking
+   * @param obstacles Container of obstacles to check against
    * @param look_ahead_idx Number of poses along the trajectory that should be verified, if -1, the complete trajectory will be checked.
-   * @return \c true, if the robot footprint along the first part of the trajectory intersects with
-   *         any obstacle in the costmap, \c false otherwise.
+   * @param feasibility_check_lookahead_distance Max distance to check for feasibility
+   * @return \c true, if trajectory is feasible, \c false otherwise.
    */
-  virtual bool isTrajectoryFeasible(dwb_critics::ObstacleFootprintCritic* costmap_model, const std::vector<geometry_msgs::msg::Point>& footprint_spec,
-                                    double inscribed_radius = 0.0, double circumscribed_radius=0.0, int look_ahead_idx=-1, double feasibility_check_lookahead_distance=-1.0);
+  virtual bool isTrajectoryFeasible(const RobotFootprintModelPtr& robot_model,
+                                    const std::vector<ObstaclePtr>& obstacles,
+                                    int look_ahead_idx=-1,
+                                    double feasibility_check_lookahead_distance=-1.0) override;
 
   /**
    * @brief In case of empty best teb, scores again the available plans to find the best one.
@@ -239,26 +211,6 @@ public:
    * @return Iterator to the next valid teb if available, else to the end of the tebs container.
    */
   TebOptPlannerContainer::iterator removeTeb(TebOptimalPlannerPtr& teb);
-
-  //@}
-
-  /** @name Visualization */
-  //@{
-
-  /**
-   * @brief Register a TebVisualization class to enable visiualization routines (e.g. publish the local plan and pose sequence)
-   * @param visualization shared pointer to a TebVisualization instance
-   * @see visualizeTeb
-   */
-  void setVisualization(const TebVisualizationPtr & visualization) override;
-
-   /**
-    * @brief Publish the local plan, pose sequence and additional information via ros topics (e.g. subscribe with rviz).
-    *
-    * Make sure to register a TebVisualization instance before using setVisualization() or an overlaoded constructor.
-    * @see setVisualization
-    */
-  virtual void visualize();
 
   //@}
 
@@ -279,10 +231,10 @@ public:
    * @param start Current start pose (e.g. pose of the robot)
    * @param goal Goal pose (e.g. robot's goal)
    * @param dist_to_obst Allowed distance to obstacles: if not satisfying, the path will be rejected (note, this is not the distance used for optimization).
-   * @param @param start_velocity start velocity (optional)
+   * @param start_velocity start velocity (optional)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed, otherwise the final velocity will be zero (default: false)
    */
-  void exploreEquivalenceClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, const geometry_msgs::msg::Twist* start_vel, bool free_goal_vel = false);
+  void exploreEquivalenceClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, const Velocity2D* start_vel, bool free_goal_vel = false);
 
   /**
    * @brief Add a new Teb to the internal trajectory container, if this teb constitutes a new equivalence class. Initialize it using a generic 2D reference path
@@ -300,7 +252,7 @@ public:
    * @return Shared pointer to the newly created teb optimal planner
    */
   template<typename BidirIter, typename Fun>
-  TebOptimalPlannerPtr addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false);
+  TebOptimalPlannerPtr addAndInitNewTeb(BidirIter path_start, BidirIter path_end, Fun fun_position, double start_orientation, double goal_orientation, const Velocity2D* start_velocity, bool free_goal_vel = false);
 
   /**
    * @brief Add a new Teb to the internal trajectory container, if this teb constitutes a new equivalence class. Initialize it with a simple straight line between a given start and goal
@@ -310,16 +262,16 @@ public:
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed, otherwise the final velocity will be zero (default: false)
    * @return Shared pointer to the newly created teb optimal planner
    */
-  TebOptimalPlannerPtr addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false);
+  TebOptimalPlannerPtr addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, const Velocity2D* start_velocity, bool free_goal_vel = false);
 
   /**
-   * @brief Add a new Teb to the internal trajectory container , if this teb constitutes a new equivalence class. Initialize it using a PoseStamped container
+   * @brief Add a new Teb to the internal trajectory container, if this teb constitutes a new equivalence class. Initialize it using a PoseSE2 container
    * @param initial_plan container of poses (start and goal orientation should be valid!)
    * @param start_velocity start velocity (optional)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed, otherwise the final velocity will be zero (default: false)
    * @return Shared pointer to the newly created teb optimal planner
    */
-  TebOptimalPlannerPtr addAndInitNewTeb(const std::vector<geometry_msgs::msg::PoseStamped>& initial_plan, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false);
+  TebOptimalPlannerPtr addAndInitNewTeb(const std::vector<PoseSE2>& initial_plan, const Velocity2D* start_velocity, bool free_goal_vel = false);
 
   /**
    * @brief Update TEBs with new pose, goal and current velocity.
@@ -327,7 +279,7 @@ public:
    * @param goal New goal pose (optional)
    * @param start_velocity start velocity (optional)
    */
-  void updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const geometry_msgs::msg::Twist* start_velocity);
+  void updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const Velocity2D* start_velocity);
 
 
   /**
@@ -361,7 +313,7 @@ public:
     *
     * Clear all previously found H-signatures, paths, tebs and the hcgraph.
     */
-  virtual void clearPlanner() {clearGraph(); equivalence_classes_.clear(); tebs_.clear(); initial_plan_ = NULL;}
+  virtual void clearPlanner() override {clearGraph(); equivalence_classes_.clear(); tebs_.clear(); initial_plan_ = nullptr;}
 
 
   /**
@@ -548,12 +500,11 @@ protected:
   const ViaPointContainer* via_points_; //!< Store the current list of via-points
 
   // internal objects (memory management owned)
-  TebVisualizationPtr visualization_; //!< Instance of the visualization class (local/global plan, obstacles, ...)
   TebOptimalPlannerPtr best_teb_; //!< Store the current best teb.
   EquivalenceClassPtr best_teb_eq_class_; //!< Store the equivalence class of the current best teb
   RobotFootprintModelPtr robot_model_; //!< Robot model shared instance
 
-  const std::vector<geometry_msgs::msg::PoseStamped>* initial_plan_; //!< Store the initial plan if available for a better trajectory initialization
+  const std::vector<PoseSE2>* initial_plan_; //!< Store the initial plan if available for a better trajectory initialization
   EquivalenceClassPtr initial_plan_eq_class_; //!< Store the equivalence class of the initial plan
   TebOptimalPlannerPtr initial_plan_teb_; //!< Store pointer to the TEB related to the initial plan (use method getInitialPlanTEB() since it checks if initial_plan_teb_ is still included in tebs_.)
 
@@ -564,7 +515,7 @@ protected:
 
   std::shared_ptr<GraphSearchInterface> graph_search_;
 
-  rclcpp::Time last_eq_class_switching_time_; //!< Store the time at which the equivalence class changed recently
+  double last_eq_class_switching_time_; //!< Store the time at which the equivalence class changed recently
 
   std::default_random_engine random_;
   bool initialized_; //!< Keeps track about the correct initialization of this class

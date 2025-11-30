@@ -34,9 +34,11 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *
  * Author: Christoph Rösmann
+ * Modified: ROS dependencies removed for standalone use
  *********************************************************************/
 
 #include "teb_local_planner/timed_elastic_band.h"
+#include "teb_local_planner/misc.h"
 
 namespace teb_local_planner
 {
@@ -70,7 +72,7 @@ TimedElasticBand::TimedElasticBand()
 
 TimedElasticBand::~TimedElasticBand()
 {
-  RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "Destructor Timed_Elastic_Band...");
+  TEB_DEBUG("Destructor Timed_Elastic_Band...");
   clearTimedElasticBand();
 }
 
@@ -113,8 +115,7 @@ void TimedElasticBand::addPoseAndTimeDiff(double x, double y, double angle, doub
     addTimeDiff(dt,false);
   }
   else {
-    RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"),
-                 "Method addPoseAndTimeDiff: Add one single Pose first. Timediff describes the time difference between last conf and given conf");
+    TEB_ERROR("Method addPoseAndTimeDiff: Add one single Pose first. Timediff describes the time difference between last conf and given conf");
   }
   return;
 }
@@ -128,7 +129,7 @@ void TimedElasticBand::addPoseAndTimeDiff(const PoseSE2& pose, double dt)
     addPose(pose,false);
     addTimeDiff(dt,false);
   } else {
-    RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"), "Method addPoseAndTimeDiff: Add one single Pose first. Timediff describes the time difference between last conf and given conf");
+    TEB_ERROR("Method addPoseAndTimeDiff: Add one single Pose first. Timediff describes the time difference between last conf and given conf");
   }
   return;
 }
@@ -140,8 +141,7 @@ void TimedElasticBand::addPoseAndTimeDiff(const Eigen::Ref<const Eigen::Vector2d
     addPose(position, theta,false);
     addTimeDiff(dt,false);
   } else {
-    RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"),
-                 "Method addPoseAndTimeDiff: Add one single Pose first. Timediff describes the time difference between last conf and given conf");
+    TEB_DEBUG("Method addPoseAndTimeDiff: Add one single Pose first. Timediff describes the time difference between last conf and given conf");
   }
   return;
 }
@@ -241,8 +241,6 @@ void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_s
     {
       if(TimeDiff(i) > dt_ref + dt_hysteresis && sizeTimeDiffs()<max_samples)
       {
-        //RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "teb_local_planner: autoResize() inserting new bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
-
         double newtime = 0.5*TimeDiff(i);
 
         TimeDiff(i) = newtime;
@@ -253,8 +251,6 @@ void TimedElasticBand::autoResize(double dt_ref, double dt_hysteresis, int min_s
       }
       else if(TimeDiff(i) < dt_ref - dt_hysteresis && sizeTimeDiffs()>min_samples) // only remove samples if size is larger than min_samples.
       {
-        //RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "teb_local_planner: autoResize() deleting bandpoint i=%u, #TimeDiffs=%lu",i,sizeTimeDiffs());
-
         if(i < ((int)sizeTimeDiffs()-1))
         {
           TimeDiff(i+1) = TimeDiff(i+1) + TimeDiff(i);
@@ -351,8 +347,7 @@ bool TimedElasticBand::initTrajectoryToGoal(const PoseSE2& start, const PoseSE2&
     // if number of samples is not larger than min_samples, insert manually
     if ( sizePoses() < min_samples-1 )
     {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"),
-                   "initTEBtoGoal(): number of generated samples is less than specified by min_samples. Forcing the insertion of more samples...");
+      TEB_DEBUG("initTEBtoGoal(): number of generated samples is less than specified by min_samples. Forcing the insertion of more samples...");
       while (sizePoses() < min_samples-1) // subtract goal point that will be added later
       {
         // simple strategy: interpolate between the current pose and the goal
@@ -369,23 +364,21 @@ bool TimedElasticBand::initTrajectoryToGoal(const PoseSE2& start, const PoseSE2&
   }
   else // size!=0
   {
-    RCLCPP_WARN(rclcpp::get_logger("teb_local_planner"),
-                 "Cannot init TEB between given configuration and goal, because TEB vectors are not empty or TEB is already initialized (call this function before adding states yourself)!");
-    RCLCPP_WARN(rclcpp::get_logger("teb_local_planner"),
-                 "Number of TEB configurations: %d, Number of TEB timediffs: %d",(unsigned int) sizePoses(),(unsigned int) sizeTimeDiffs());
+    TEB_WARN("Cannot init TEB between given configuration and goal, because TEB vectors are not empty or TEB is already initialized (call this function before adding states yourself)!");
+    TEB_WARN("Number of TEB configurations: " << sizePoses() << ", Number of TEB timediffs: " << sizeTimeDiffs());
     return false;
   }
   return true;
 }
 
 
-bool TimedElasticBand::initTrajectoryToGoal(const std::vector<geometry_msgs::msg::PoseStamped>& plan, double max_vel_x, double max_vel_theta, bool estimate_orient, int min_samples, bool guess_backwards_motion)
+bool TimedElasticBand::initTrajectoryToGoal(const std::vector<PoseSE2>& plan, double max_vel_x, double max_vel_theta, bool estimate_orient, int min_samples, bool guess_backwards_motion)
 {
 
   if (!isInit())
   {
-    PoseSE2 start(plan.front().pose);
-    PoseSE2 goal(plan.back().pose);
+    const PoseSE2& start = plan.front();
+    const PoseSE2& goal = plan.back();
 
     addPose(start); // add starting point with given orientation
     setPoseVertexFixed(0,true); // StartConf is a fixed constraint during optimization
@@ -401,17 +394,17 @@ bool TimedElasticBand::initTrajectoryToGoal(const std::vector<geometry_msgs::msg
         if (estimate_orient)
         {
             // get yaw from the orientation of the distance vector between pose_{i+1} and pose_{i}
-            double dx = plan[i+1].pose.position.x - plan[i].pose.position.x;
-            double dy = plan[i+1].pose.position.y - plan[i].pose.position.y;
+            double dx = plan[i+1].x() - plan[i].x();
+            double dy = plan[i+1].y() - plan[i].y();
             yaw = std::atan2(dy,dx);
             if (backwards)
                 yaw = g2o::normalize_theta(yaw+M_PI);
         }
         else
         {
-            yaw = tf2::getYaw(plan[i].pose.orientation);
+            yaw = plan[i].theta();
         }
-        PoseSE2 intermediate_pose(plan[i].pose.position.x, plan[i].pose.position.y, yaw);
+        PoseSE2 intermediate_pose(plan[i].x(), plan[i].y(), yaw);
         double dt = estimateDeltaT(BackPose(), intermediate_pose, max_vel_x, max_vel_theta);
         addPoseAndTimeDiff(intermediate_pose, dt);
     }
@@ -419,8 +412,7 @@ bool TimedElasticBand::initTrajectoryToGoal(const std::vector<geometry_msgs::msg
     // if number of samples is not larger than min_samples, insert manually
     if ( sizePoses() < min_samples-1 )
     {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"),
-                   "initTEBtoGoal(): number of generated samples is less than specified by min_samples. Forcing the insertion of more samples...");
+      TEB_DEBUG("initTEBtoGoal(): number of generated samples is less than specified by min_samples. Forcing the insertion of more samples...");
       while (sizePoses() < min_samples-1) // subtract goal point that will be added later
       {
         // simple strategy: interpolate between the current pose and the goal
@@ -437,10 +429,8 @@ bool TimedElasticBand::initTrajectoryToGoal(const std::vector<geometry_msgs::msg
   }
   else // size!=0
   {
-    RCLCPP_WARN(rclcpp::get_logger("teb_local_planner"),
-                 "Cannot init TEB between given configuration and goal, because TEB vectors are not empty or TEB is already initialized (call this function before adding states yourself)!");
-    RCLCPP_WARN(rclcpp::get_logger("teb_local_planner"),
-                 "Number of TEB configurations: %d, Number of TEB timediffs: %d", sizePoses(), sizeTimeDiffs());
+    TEB_WARN("Cannot init TEB between given configuration and goal, because TEB vectors are not empty or TEB is already initialized (call this function before adding states yourself)!");
+    TEB_WARN("Number of TEB configurations: " << sizePoses() << ", Number of TEB timediffs: " << sizeTimeDiffs());
     return false;
   }
 
@@ -609,14 +599,14 @@ bool TimedElasticBand::isTrajectoryInsideRegion(double radius, double max_dist_b
 
         if (dist_sq > radius_sq)
         {
-            RCLCPP_INFO(rclcpp::get_logger("teb_local_planner"), "outside robot");
+            TEB_INFO("outside robot");
             return false;
         }
 
         // check behind the robot with a different distance, if specified (or >=0)
         if (max_dist_behind_robot >= 0 && dist_vec.dot(robot_orient) < 0 && dist_sq > max_dist_behind_robot_sq)
         {
-            RCLCPP_INFO(rclcpp::get_logger("teb_local_planner"), "outside robot behind");
+            TEB_INFO("outside robot behind");
             return false;
         }
 

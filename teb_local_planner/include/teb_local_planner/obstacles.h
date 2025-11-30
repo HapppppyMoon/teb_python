@@ -45,10 +45,8 @@
 #include <Eigen/Geometry>
 
 #include <complex>
-
-#include <geometry_msgs/msg/polygon.hpp>
-#include <geometry_msgs/msg/twist_with_covariance.hpp>
-#include <geometry_msgs/msg/quaternion_stamped.hpp>
+#include <memory>
+#include <vector>
 
 #include "teb_local_planner/distance_calculations.h"
 
@@ -202,39 +200,6 @@ public:
   void setCentroidVelocity(const Eigen::Ref<const Eigen::Vector2d>& vel) {centroid_velocity_ = vel; dynamic_=true;} 
 
   /**
-    * @brief Set the 2d velocity (vx, vy) of the obstacle w.r.t to the centroid
-    * @remarks Setting the velocity using this function marks the obstacle as dynamic (@see isDynamic)
-    * @param velocity geometry_msgs::msg::TwistWithCovariance containing the velocity of the obstacle
-    * @param orientation geometry_msgs::msg::QuaternionStamped containing the orientation of the obstacle
-    */
-  void setCentroidVelocity(const geometry_msgs::msg::TwistWithCovariance& velocity,
-                           const geometry_msgs::msg::Quaternion& orientation)
-  {
-    // Set velocity, if obstacle is moving
-    Eigen::Vector2d vel;
-    vel.coeffRef(0) = velocity.twist.linear.x;
-    vel.coeffRef(1) = velocity.twist.linear.y;
-
-    // If norm of velocity is less than 0.001, consider obstacle as not dynamic
-    // TODO: Get rid of constant
-    if (vel.norm() < 0.001)
-      return;
-
-    // currently velocity published by stage is already given in the map frame
-//    double yaw = tf::getYaw(orientation.quaternion);
-//    ROS_INFO("Yaw: %f", yaw);
-//    Eigen::Rotation2Dd rot(yaw);
-//    vel = rot * vel;
-    setCentroidVelocity(vel);
-  }
-
-  void setCentroidVelocity(const geometry_msgs::msg::TwistWithCovariance& velocity,
-                           const geometry_msgs::msg::QuaternionStamped& orientation)
-  {
-    setCentroidVelocity(velocity, orientation.quaternion);
-  }
-
-  /**
     * @brief Get the obstacle velocity (vx, vy) (w.r.t. to the centroid)
     * @returns 2D vector containing the velocities of the centroid in x and y directions
     */
@@ -244,36 +209,6 @@ public:
 
 
 
-  /** @name Helper Functions */
-  //@{ 
-  
-  /**
-   * @brief Convert the obstacle to a polygon message
-   * 
-   * Convert the obstacle to a corresponding polygon msg.
-   * Point obstacles have one vertex, lines have two vertices 
-   * and polygons might are implictly closed such that the start vertex must not be repeated.
-   * @param[out] polygon the polygon message
-   */
-  virtual void toPolygonMsg(geometry_msgs::msg::Polygon& polygon) = 0;
-
-  virtual void toTwistWithCovarianceMsg(geometry_msgs::msg::TwistWithCovariance& twistWithCovariance)
-  {
-    if (dynamic_)
-    {
-      twistWithCovariance.twist.linear.x = centroid_velocity_(0);
-      twistWithCovariance.twist.linear.y = centroid_velocity_(1);
-    }
-    else
-    {
-      twistWithCovariance.twist.linear.x = 0;
-      twistWithCovariance.twist.linear.y = 0;
-    }
-
-    // TODO:Covariance
-  }
-
-  //@}
 	
 protected:
 	   
@@ -418,15 +353,6 @@ public:
   double& y() {return pos_.coeffRef(1);} //!< Return the current x-coordinate of the obstacle
   const double& y() const {return pos_.coeffRef(1);} //!< Return the current y-coordinate of the obstacle (read-only)
       
-  // implements toPolygonMsg() of the base class
-  virtual void toPolygonMsg(geometry_msgs::msg::Polygon& polygon)
-  {
-    polygon.points.resize(1);
-    polygon.points.front().x = pos_.x();
-    polygon.points.front().y = pos_.y();
-    polygon.points.front().z = 0;
-  }
-      
 protected:
   
   Eigen::Vector2d pos_; //!< Store the position of the PointObstacle
@@ -564,17 +490,6 @@ public:
   double& radius() {return radius_;} //!< Return the current radius of the obstacle
   const double& radius() const {return radius_;} //!< Return the current radius of the obstacle
 
-  // implements toPolygonMsg() of the base class
-  virtual void toPolygonMsg(geometry_msgs::msg::Polygon& polygon)
-  {
-    // TODO(roesmann): the polygon message type cannot describe a "perfect" circle
-    //                 We could switch to ObstacleMsg if required somewhere...
-    polygon.points.resize(1);
-    polygon.points.front().x = pos_.x();
-    polygon.points.front().y = pos_.y();
-    polygon.points.front().z = 0;
-  }
-
 protected:
 
   Eigen::Vector2d pos_; //!< Store the center position of the CircularObstacle
@@ -707,18 +622,6 @@ public:
   void setStart(const Eigen::Ref<const Eigen::Vector2d>& start) {start_ = start; calcCentroid();}
   const Eigen::Vector2d& end() const {return end_;}
   void setEnd(const Eigen::Ref<const Eigen::Vector2d>& end) {end_ = end; calcCentroid();}
-  
-  // implements toPolygonMsg() of the base class
-  virtual void toPolygonMsg(geometry_msgs::msg::Polygon& polygon)
-  {
-    polygon.points.resize(2);
-    polygon.points.front().x = start_.x();
-    polygon.points.front().y = start_.y();
-    
-    polygon.points.back().x = end_.x();
-    polygon.points.back().y = end_.y();
-    polygon.points.back().z = polygon.points.front().z = 0;
-  }
   
 protected:
   void calcCentroid()	{	centroid_ = 0.5*(start_ + end_); }
@@ -855,20 +758,6 @@ public:
   void setStart(const Eigen::Ref<const Eigen::Vector2d>& start) {start_ = start; calcCentroid();}
   const Eigen::Vector2d& end() const {return end_;}
   void setEnd(const Eigen::Ref<const Eigen::Vector2d>& end) {end_ = end; calcCentroid();}
-
-  // implements toPolygonMsg() of the base class
-  virtual void toPolygonMsg(geometry_msgs::msg::Polygon& polygon)
-  {
-    // Currently, we only export the line
-    // TODO(roesmann): export whole pill
-    polygon.points.resize(2);
-    polygon.points.front().x = start_.x();
-    polygon.points.front().y = start_.y();
-
-    polygon.points.back().x = end_.x();
-    polygon.points.back().y = end_.y();
-    polygon.points.back().z = polygon.points.front().z = 0;
-  }
 
 protected:
   void calcCentroid()    {    centroid_ = 0.5*(start_ + end_); }
@@ -1029,10 +918,6 @@ public:
     assert(finalized_ && "Finalize the polygon after all vertices are added.");
     return std::complex<double>(centroid_.coeffRef(0), centroid_.coeffRef(1));
   }
-  
-  // implements toPolygonMsg() of the base class
-  virtual void toPolygonMsg(geometry_msgs::msg::Polygon& polygon);
-
   
   /** @name Define the polygon */
   ///@{

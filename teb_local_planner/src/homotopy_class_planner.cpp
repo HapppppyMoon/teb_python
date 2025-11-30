@@ -34,33 +34,34 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *
  * Author: Christoph Rösmann
+ * Modified: ROS dependencies removed for standalone use
  *********************************************************************/
 
 #include "teb_local_planner/homotopy_class_planner.h"
 
 #include <limits>
+#include <chrono>
 
 namespace teb_local_planner
 {
 
-HomotopyClassPlanner::HomotopyClassPlanner() : cfg_(NULL), obstacles_(NULL), via_points_(NULL), robot_model_(new PointRobotFootprint()), initial_plan_(NULL), initialized_(false)
+HomotopyClassPlanner::HomotopyClassPlanner() : cfg_(nullptr), obstacles_(nullptr), via_points_(nullptr), robot_model_(new PointRobotFootprint()), initial_plan_(nullptr), initialized_(false)
 {
 }
 
-HomotopyClassPlanner::HomotopyClassPlanner(nav2_util::LifecycleNode::SharedPtr node, const TebConfig& cfg, ObstContainer* obstacles,
-                                           TebVisualizationPtr visual, const ViaPointContainer* via_points) : initial_plan_(NULL)
+HomotopyClassPlanner::HomotopyClassPlanner(const TebConfig& cfg, ObstContainer* obstacles,
+                                           const ViaPointContainer* via_points) : initial_plan_(nullptr)
 {
-  initialize(node, cfg, obstacles, visual, via_points);
+  initialize(cfg, obstacles, via_points);
 }
 
 HomotopyClassPlanner::~HomotopyClassPlanner()
 {
 }
 
-void HomotopyClassPlanner::initialize(nav2_util::LifecycleNode::SharedPtr node, const TebConfig& cfg, ObstContainer* obstacles,
-                                      TebVisualizationPtr visual, const ViaPointContainer* via_points)
+void HomotopyClassPlanner::initialize(const TebConfig& cfg, ObstContainer* obstacles,
+                                      const ViaPointContainer* via_points)
 {
-  node_ = node;
   cfg_ = &cfg;
   obstacles_ = obstacles;
   via_points_ = via_points;
@@ -73,44 +74,27 @@ void HomotopyClassPlanner::initialize(nav2_util::LifecycleNode::SharedPtr node, 
   std::random_device rd;
   random_.seed(rd());
 
-  // This is needed to prevent different time sources error
-  last_eq_class_switching_time_ = rclcpp::Time(0, 0, node->get_clock()->get_clock_type());
+  last_eq_class_switching_time_ = 0.0;
 
   initialized_ = true;
-
-  setVisualization(visual);
-}
-
-void HomotopyClassPlanner::setVisualization(const TebVisualizationPtr& visualization)
-{
-  visualization_ = visualization;
 }
 
 
-
-bool HomotopyClassPlanner::plan(const std::vector<geometry_msgs::msg::PoseStamped>& initial_plan, const geometry_msgs::msg::Twist* start_vel, bool free_goal_vel)
+bool HomotopyClassPlanner::plan(const std::vector<PoseSE2>& initial_plan, const Velocity2D* start_vel, bool free_goal_vel)
 {
   TEB_ASSERT_MSG(initialized_, "Call initialize() first.");
 
   // store initial plan for further initializations (must be valid for the lifetime of this object or clearPlanner() is called!)
   initial_plan_ = &initial_plan;
 
-  PoseSE2 start(initial_plan.front().pose);
-  PoseSE2 goal(initial_plan.back().pose);
+  PoseSE2 start(initial_plan.front());
+  PoseSE2 goal(initial_plan.back());
 
   return plan(start, goal, start_vel, free_goal_vel);
 }
 
-// tf2 doesn't have tf::Pose
-//bool HomotopyClassPlanner::plan(const tf::Pose& start, const tf::Pose& goal, const geometry_msgs::msg::Twist* start_vel, bool free_goal_vel)
-//{
-//  TEB_ASSERT_MSG(initialized_, "Call initialize() first.");
-//  PoseSE2 start_pose(start);
-//  PoseSE2 goal_pose(goal);
-//  return plan(start_pose, goal_pose, start_vel, free_goal_vel);
-//}
 
-bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::msg::Twist* start_vel, bool free_goal_vel)
+bool HomotopyClassPlanner::plan(const PoseSE2& start, const PoseSE2& goal, const Velocity2D* start_vel, bool free_goal_vel)
 {
   TEB_ASSERT_MSG(initialized_, "Call initialize() first.");
 
@@ -147,40 +131,6 @@ bool HomotopyClassPlanner::getVelocityCommand(double& vx, double& vy, double& om
 
 
 
-void HomotopyClassPlanner::visualize()
-{
-  if (visualization_)
-  {
-    // Visualize graph
-    if (cfg_->hcp.visualize_hc_graph && graph_search_)
-      visualization_->publishGraph(graph_search_->graph_);
-
-    // Visualize active tebs as marker
-    visualization_->publishTebContainer(tebs_);
-
-    // Visualize best teb and feedback message if desired
-    TebOptimalPlannerConstPtr best_teb = bestTeb();
-    if (best_teb)
-    {
-      visualization_->publishLocalPlanAndPoses(best_teb->teb());
-
-      if (best_teb->teb().sizePoses() > 0) //TODO maybe store current pose (start) within plan method as class field.
-        visualization_->publishRobotFootprintModel(best_teb->teb().Pose(0), *cfg_->robot_model);
-
-      // feedback message
-      if (cfg_->trajectory.publish_feedback)
-      {
-        int best_idx = bestTebIdx();
-        if (best_idx>=0)
-          visualization_->publishFeedbackMessage(tebs_, (unsigned int) best_idx, *obstacles_);
-      }
-    }
-  }
-  else RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "Ignoring HomotopyClassPlanner::visualize() call, since no visualization class was instantiated before.");
-}
-
-
-
 bool HomotopyClassPlanner::hasEquivalenceClass(const EquivalenceClassPtr& eq_class) const
 {
   // iterate existing h-signatures and check if there is an existing H-Signature similar the candidate
@@ -199,7 +149,7 @@ bool HomotopyClassPlanner::addEquivalenceClassIfNew(const EquivalenceClassPtr& e
 
   if (!eq_class->isValid())
   {
-    RCLCPP_WARN(rclcpp::get_logger("teb_local_planner"), "HomotopyClassPlanner: Ignoring invalid H-signature");
+    TEB_WARN("HomotopyClassPlanner: Ignoring invalid H-signature");
     return false;
   }
 
@@ -233,9 +183,6 @@ void HomotopyClassPlanner::renewAndAnalyzeOldTebs(bool delete_detours)
       best_teb_->teb().timediffs().begin(), best_teb_->teb().timediffs().end());
     addEquivalenceClassIfNew(best_teb_eq_class_);
   }
-  // Collect h-signatures for all existing TEBs and store them together with the corresponding iterator / pointer:
-//   typedef std::list< std::pair<TebOptPlannerContainer::iterator, std::complex<long double> > > TebCandidateType;
-//   TebCandidateType teb_candidates;
 
   // get new homotopy classes and delete multiple TEBs per homotopy class. Skips the best teb if available (added before).
   TebOptPlannerContainer::iterator it_teb = has_best_teb ? std::next(tebs_.begin(), 1) : tebs_.begin();
@@ -244,8 +191,6 @@ void HomotopyClassPlanner::renewAndAnalyzeOldTebs(bool delete_detours)
     // calculate equivalence class for the current candidate
     EquivalenceClassPtr equivalence_class = calculateEquivalenceClass(it_teb->get()->teb().poses().begin(), it_teb->get()->teb().poses().end(), getCplxFromVertexPosePtr , obstacles_,
                                                                       it_teb->get()->teb().timediffs().begin(), it_teb->get()->teb().timediffs().end());
-
-//     teb_candidates.push_back(std::make_pair(it_teb,H));
 
     // WORKAROUND until the commented code below works
     // Here we do not compare cost values. Just first come first serve...
@@ -260,51 +205,6 @@ void HomotopyClassPlanner::renewAndAnalyzeOldTebs(bool delete_detours)
   }
   if(delete_detours)
     deletePlansDetouringBackwards(cfg_->hcp.detours_orientation_tolerance, cfg_->hcp.length_start_orientation_vector);
-
-  // Find multiple candidates and delete the one with higher cost
-  // TODO: this code needs to be adpated. Erasing tebs from the teb container_ could make iteratores stored in the candidate list invalid!
-//   TebCandidateType::reverse_iterator cand_i = teb_candidates.rbegin();
-//   int test_idx = 0;
-//   while (cand_i != teb_candidates.rend())
-//   {
-//
-//     TebCandidateType::reverse_iterator cand_j = std::find_if(boost::next(cand_i),teb_candidates.rend(), boost::bind(compareH,_1,cand_i->second));
-//     if (cand_j != teb_candidates.rend() && cand_j != cand_i)
-//     {
-//         TebOptimalPlannerPtr pt1 = *(cand_j->first);
-//         TebOptimalPlannerPtr pt2 = *(cand_i->first);
-//         assert(pt1);
-//         assert(pt2);
-//       if ( cand_j->first->get()->getCurrentCost().sum() > cand_i->first->get()->getCurrentCost().sum() )
-//       {
-// 	// found one that has higher cost, therefore erase cand_j
-// 	tebs_.erase(cand_j->first);
-// 	teb_candidates.erase(cand_j);
-//       }
-//       else   // otherwise erase cand_i
-//       {
-// 	tebs_.erase(cand_i->first);
-// 	cand_i = teb_candidates.erase(cand_i);
-//       }
-//     }
-//     else
-//     {
-//         ROS_WARN_STREAM("increase cand_i");
-//         ++cand_i;
-//     }
-//   }
-
-  // now add the h-signatures to the internal lookup-table (but only if there is no existing duplicate)
-//   for (TebCandidateType::iterator cand=teb_candidates.begin(); cand!=teb_candidates.end(); ++cand)
-//   {
-//     bool new_flag = addNewHSignatureIfNew(cand->second, cfg_->hcp.h_signature_threshold);
-//     if (!new_flag)
-//     {
-// //       ROS_ERROR_STREAM("getAndFilterHomotopyClassesTEB() - This schould not be happen.");
-//       tebs_.erase(cand->first);
-//     }
-//   }
-
 }
 
 void HomotopyClassPlanner::updateReferenceTrajectoryViaPoints(bool all_trajectories)
@@ -314,7 +214,7 @@ void HomotopyClassPlanner::updateReferenceTrajectoryViaPoints(bool all_trajector
 
   if(equivalence_classes_.size() < tebs_.size())
   {
-    RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"), "HomotopyClassPlanner::updateReferenceTrajectoryWithViaPoints(): Number of h-signatures does not match number of trajectories.");
+    TEB_ERROR("HomotopyClassPlanner::updateReferenceTrajectoryWithViaPoints(): Number of h-signatures does not match number of trajectories.");
     return;
   }
 
@@ -334,13 +234,13 @@ void HomotopyClassPlanner::updateReferenceTrajectoryViaPoints(bool all_trajector
       if(initial_plan_eq_class_->isEqual(*equivalence_classes_[i].first))
         tebs_[i]->setViaPoints(via_points_);
       else
-        tebs_[i]->setViaPoints(NULL);
+        tebs_[i]->setViaPoints(nullptr);
     }
   }
 }
 
 
-void HomotopyClassPlanner::exploreEquivalenceClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, const geometry_msgs::msg::Twist* start_vel, bool free_goal_vel)
+void HomotopyClassPlanner::exploreEquivalenceClassesAndInitTebs(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, const Velocity2D* start_vel, bool free_goal_vel)
 {
   // first process old trajectories
   renewAndAnalyzeOldTebs(cfg_->hcp.delete_detours_backwards);
@@ -362,11 +262,11 @@ void HomotopyClassPlanner::exploreEquivalenceClassesAndInitTebs(const PoseSE2& s
 }
 
 
-TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel)
+TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const PoseSE2& start, const PoseSE2& goal, const Velocity2D* start_velocity, bool free_goal_vel)
 {
   if(tebs_.size() >= cfg_->hcp.max_number_classes)
     return TebOptimalPlannerPtr();
-  TebOptimalPlannerPtr candidate =  TebOptimalPlannerPtr( new TebOptimalPlanner(node_, *cfg_, obstacles_, visualization_));
+  TebOptimalPlannerPtr candidate =  TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_));
 
   candidate->teb().initTrajectoryToGoal(start, goal, 0, cfg_->robot.max_vel_x, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
 
@@ -377,7 +277,7 @@ TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const PoseSE2& start
                                                     candidate->teb().timediffs().begin(), candidate->teb().timediffs().end());
 
   if (free_goal_vel)
-    candidate->setVelocityGoalFree(); 
+    candidate->setVelocityGoalFree();
 
   if(addEquivalenceClassIfNew(H))
   {
@@ -417,11 +317,11 @@ int HomotopyClassPlanner::numTebsInBestTebClass() const
   return count;
 }
 
-TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const std::vector<geometry_msgs::msg::PoseStamped>& initial_plan, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel)
+TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const std::vector<PoseSE2>& initial_plan, const Velocity2D* start_velocity, bool free_goal_vel)
 {
   if(tebs_.size() >= cfg_->hcp.max_number_classes)
     return TebOptimalPlannerPtr();
-  TebOptimalPlannerPtr candidate = TebOptimalPlannerPtr( new TebOptimalPlanner(node_, *cfg_, obstacles_, visualization_));
+  TebOptimalPlannerPtr candidate = TebOptimalPlannerPtr( new TebOptimalPlanner(*cfg_, obstacles_));
 
   candidate->teb().initTrajectoryToGoal(initial_plan, cfg_->robot.max_vel_x, cfg_->robot.max_vel_theta,
     cfg_->trajectory.global_plan_overwrite_orientation, cfg_->trajectory.min_samples, cfg_->trajectory.allow_init_with_backwards_motion);
@@ -446,7 +346,7 @@ TebOptimalPlannerPtr HomotopyClassPlanner::addAndInitNewTeb(const std::vector<ge
   return TebOptimalPlannerPtr();
 }
 
-void HomotopyClassPlanner::updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const geometry_msgs::msg::Twist* start_velocity)
+void HomotopyClassPlanner::updateAllTEBs(const PoseSE2* start, const PoseSE2* goal, const Velocity2D* start_velocity)
 {
   // If new goal is too far away, clear all existing trajectories to let them reinitialize later.
   // Since all Tebs are sharing the same fixed goal pose, just take the first candidate:
@@ -454,7 +354,7 @@ void HomotopyClassPlanner::updateAllTEBs(const PoseSE2* start, const PoseSE2* go
       && ((goal->position() - tebs_.front()->teb().BackPose().position()).norm() >= cfg_->trajectory.force_reinit_new_goal_dist
         || fabs(g2o::normalize_theta(goal->theta() - tebs_.front()->teb().BackPose().theta())) >= cfg_->trajectory.force_reinit_new_goal_angular))
   {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "New goal: distance to existing goal is higher than the specified threshold. Reinitalizing trajectories.");
+      TEB_DEBUG("New goal: distance to existing goal is higher than the specified threshold. Reinitalizing trajectories.");
       tebs_.clear();
       equivalence_classes_.clear();
   }
@@ -514,12 +414,12 @@ TebOptimalPlannerPtr HomotopyClassPlanner::getInitialPlanTEB()
         else
         {
             initial_plan_teb_.reset(); // reset pointer for next call
-            RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "initial teb not found, trying to find a match according to the cached equivalence class");
+            TEB_DEBUG("initial teb not found, trying to find a match according to the cached equivalence class");
         }
     }
 
     // reset the locked state for equivalence classes // TODO: this might be adapted if not only the plan containing the initial plan is locked!
-    for (int i=0; i<equivalence_classes_.size(); ++i)
+    for (size_t i=0; i<equivalence_classes_.size(); ++i)
     {
         equivalence_classes_[i].second = false;
     }
@@ -529,7 +429,7 @@ TebOptimalPlannerPtr HomotopyClassPlanner::getInitialPlanTEB()
     {
          if (equivalence_classes_.size() == tebs_.size())
          {
-            for (int i=0; i<equivalence_classes_.size(); ++i)
+            for (size_t i=0; i<equivalence_classes_.size(); ++i)
             {
                 if (equivalence_classes_[i].first->isEqual(*initial_plan_eq_class_))
                 {
@@ -539,11 +439,10 @@ TebOptimalPlannerPtr HomotopyClassPlanner::getInitialPlanTEB()
             }
          }
          else
-             RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"),
-                          "HomotopyClassPlanner::getInitialPlanTEB(): number of equivalence classes (%lu) and number of trajectories (%lu) does not match.", equivalence_classes_.size(), tebs_.size());
+             TEB_ERROR("HomotopyClassPlanner::getInitialPlanTEB(): number of equivalence classes (" << equivalence_classes_.size() << ") and number of trajectories (" << tebs_.size() << ") does not match.");
     }
     else
-        RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "HomotopyClassPlanner::getInitialPlanTEB(): initial TEB not found in the set of available trajectories.");
+        TEB_DEBUG("HomotopyClassPlanner::getInitialPlanTEB(): initial TEB not found in the set of available trajectories.");
 
     return TebOptimalPlannerPtr();
 }
@@ -603,13 +502,6 @@ TebOptimalPlannerPtr HomotopyClassPlanner::selectBestTeb()
 
     for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
     {
-        // check if the related TEB leaves the local costmap region
-//      if (tebs_.size()>1 && !(*it_teb)->teb().isTrajectoryInsideRegion(20, -1, 1))
-//      {
-//          ROS_INFO("HomotopyClassPlanner::selectBestTeb(): skipping trajectories that are not inside the local costmap");
-//          continue;
-//      }
-
         double teb_cost;
 
         if (*it_teb == last_best_teb_)
@@ -628,47 +520,18 @@ TebOptimalPlannerPtr HomotopyClassPlanner::selectBestTeb()
      }
 
 
-  // in case we haven't found any teb due to some previous checks, investigate list again
-//   if (!best_teb_ && !tebs_.empty())
-//   {
-//       RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "all " << tebs_.size() << " tebs rejected previously");
-//       if (tebs_.size()==1)
-//         best_teb_ = tebs_.front();
-//       else // if multiple TEBs are available:
-//       {
-//           // try to use the one that relates to the initial plan
-//           TebOptimalPlannerPtr initial_plan_teb = getInitialPlanTEB();
-//           if (initial_plan_teb)
-//               best_teb_ = initial_plan_teb;
-//           else
-//           {
-//              // now compute the cost for the rest (we haven't computed it before)
-//              for (TebOptPlannerContainer::iterator it_teb = tebs_.begin(); it_teb != tebs_.end(); ++it_teb)
-//              {
-//                 double teb_cost = it_teb->get()->getCurrentCost();
-//                 if (teb_cost < min_cost)
-//                 {
-//                     // check if this candidate is currently not selected
-//                     best_teb_ = *it_teb;
-//                     min_cost = teb_cost;
-//                 }
-//              }
-//           }
-//       }
-//   }
-
     // check if we are allowed to change
     if (last_best_teb_ && best_teb_ != last_best_teb_)
     {
-      rclcpp::Time now = node_->now();
-      if ((now - last_eq_class_switching_time_).seconds() > cfg_->hcp.switching_blocking_period)
+      auto now = std::chrono::steady_clock::now();
+      double now_sec = std::chrono::duration<double>(now.time_since_epoch()).count();
+      if ((now_sec - last_eq_class_switching_time_) > cfg_->hcp.switching_blocking_period)
       {
-        last_eq_class_switching_time_ = now;
+        last_eq_class_switching_time_ = now_sec;
       }
       else
       {
-        RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"),
-                     "HomotopyClassPlanner::selectBestTeb(): Switching equivalence classes blocked (check parameter switching_blocking_period.");
+        TEB_DEBUG("HomotopyClassPlanner::selectBestTeb(): Switching equivalence classes blocked (check parameter switching_blocking_period.");
         // block switching, so revert best_teb_
         best_teb_ = last_best_teb_;
       }
@@ -696,19 +559,20 @@ int HomotopyClassPlanner::bestTebIdx() const
   return -1;
 }
 
-bool HomotopyClassPlanner::isTrajectoryFeasible(dwb_critics::ObstacleFootprintCritic* costmap_model, const std::vector<geometry_msgs::msg::Point>& footprint_spec,
-                                                double inscribed_radius, double circumscribed_radius, int look_ahead_idx, double feasibility_check_lookahead_distance)
+bool HomotopyClassPlanner::isTrajectoryFeasible(const RobotFootprintModelPtr& robot_model,
+                                                const std::vector<ObstaclePtr>& obstacles,
+                                                int look_ahead_idx, double feasibility_check_lookahead_distance)
 {
   bool feasible = false;
-  while(rclcpp::ok() && !feasible && tebs_.size() > 0)
+  while(!feasible && tebs_.size() > 0)
   {
     TebOptimalPlannerPtr best = findBestTeb();
     if (!best)
     {
-      RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"), "Couldn't retrieve the best plan");
+      TEB_ERROR("Couldn't retrieve the best plan");
       return false;
     }
-    feasible = best->isTrajectoryFeasible(costmap_model, footprint_spec, inscribed_radius, circumscribed_radius, look_ahead_idx, feasibility_check_lookahead_distance);
+    feasible = best->isTrajectoryFeasible(robot_model, obstacles, look_ahead_idx, feasibility_check_lookahead_distance);
     if(!feasible)
     {
       removeTeb(best);
@@ -733,7 +597,7 @@ TebOptPlannerContainer::iterator HomotopyClassPlanner::removeTeb(TebOptimalPlann
   TebOptPlannerContainer::iterator return_iterator = tebs_.end();
   if(equivalence_classes_.size() != tebs_.size())
   {
-      RCLCPP_ERROR(rclcpp::get_logger("teb_local_planner"), "removeTeb: size of eq classes != size of tebs");
+      TEB_ERROR("removeTeb: size of eq classes != size of tebs");
       return return_iterator;
   }
   auto it_eq_classes = equivalence_classes_.begin();
@@ -797,14 +661,14 @@ void HomotopyClassPlanner::deletePlansDetouringBackwards(const double orient_thr
     }
     if((*it_teb)->teb().sizePoses() < 2)
     {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "Discarding a plan with less than 2 poses");
+      TEB_DEBUG("Discarding a plan with less than 2 poses");
       it_teb = removeTeb(*it_teb);
       continue;
     }
     double plan_orientation;
     if(!computeStartOrientation(*it_teb, len_orientation_vector, plan_orientation))
     {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "Failed to compute the start orientation for one of the tebs, likely close to the target");
+      TEB_DEBUG("Failed to compute the start orientation for one of the tebs, likely close to the target");
       it_teb = removeTeb(*it_teb);
       continue;
     }
@@ -815,13 +679,13 @@ void HomotopyClassPlanner::deletePlansDetouringBackwards(const double orient_thr
     }
     if(!it_teb->get()->isOptimized())
     {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "Removing a teb because it's not optimized");
+      TEB_DEBUG("Removing a teb because it's not optimized");
       it_teb = removeTeb(*it_teb);  // Deletes tebs that cannot be optimized (last optim call failed)
       continue;
     }
     if(it_teb->get()->teb().getSumOfAllTimeDiffs() / best_plan_duration > cfg_->hcp.max_ratio_detours_duration_best_duration)
     {
-      RCLCPP_DEBUG(rclcpp::get_logger("teb_local_planner"), "Removing a teb because it's duration is much longer than that of the best teb");
+      TEB_DEBUG("Removing a teb because it's duration is much longer than that of the best teb");
       it_teb = removeTeb(*it_teb);
       continue;
     }

@@ -63,35 +63,35 @@ IF(UNIX)
     PATHS /usr/local /usr ${CMAKE_PREFIX_PATH}
     PATH_SUFFIXES lib)
 
-  SET(G2O_LIBRARIES ${G2O_CSPARSE_EXTENSION_LIB}
-                    ${G2O_CORE_LIB}           
-                    ${G2O_STUFF_LIB}          
-                    ${G2O_TYPES_SLAM2D_LIB}   
-                    ${G2O_TYPES_SLAM3D_LIB}   
-                    ${G2O_SOLVER_CHOLMOD_LIB} 
-                    ${G2O_SOLVER_PCG_LIB}     
-                    ${G2O_SOLVER_CSPARSE_LIB} 
-                    ${G2O_INCREMENTAL_LIB}                        
-                    )
+  # Build library list with only found libraries
+  SET(G2O_LIBRARIES "")
+  foreach(lib ${G2O_CORE_LIB} ${G2O_STUFF_LIB} ${G2O_CSPARSE_EXTENSION_LIB}
+              ${G2O_SOLVER_CSPARSE_LIB} ${G2O_TYPES_SLAM2D_LIB} ${G2O_TYPES_SLAM3D_LIB}
+              ${G2O_SOLVER_CHOLMOD_LIB} ${G2O_SOLVER_PCG_LIB} ${G2O_INCREMENTAL_LIB})
+    if(lib)
+      list(APPEND G2O_LIBRARIES ${lib})
+    endif()
+  endforeach()
 
-  IF(G2O_LIBRARIES AND G2O_INCLUDE_DIR)
+  # Check minimum required libraries
+  IF(G2O_CORE_LIB AND G2O_STUFF_LIB AND G2O_INCLUDE_DIR)
     SET(G2O_FOUND "YES")
     IF(NOT G2O_FIND_QUIETLY)
       MESSAGE(STATUS "Found libg2o: ${G2O_LIBRARIES}")
     ENDIF(NOT G2O_FIND_QUIETLY)
-  ELSE(G2O_LIBRARIES AND G2O_INCLUDE_DIR)
-    IF(NOT G2O_LIBRARIES)
+  ELSE()
+    IF(NOT G2O_CORE_LIB OR NOT G2O_STUFF_LIB)
       IF(G2O_FIND_REQUIRED)
-        message(FATAL_ERROR "Could not find libg2o!")
+        message(FATAL_ERROR "Could not find libg2o core libraries!")
       ENDIF(G2O_FIND_REQUIRED)
-    ENDIF(NOT G2O_LIBRARIES)
+    ENDIF()
 
     IF(NOT G2O_INCLUDE_DIR)
       IF(G2O_FIND_REQUIRED)
         message(FATAL_ERROR "Could not find g2o include directory!")
       ENDIF(G2O_FIND_REQUIRED)
     ENDIF(NOT G2O_INCLUDE_DIR)
-  ENDIF(G2O_LIBRARIES AND G2O_INCLUDE_DIR)
+  ENDIF()
 
 ENDIF(UNIX)
 

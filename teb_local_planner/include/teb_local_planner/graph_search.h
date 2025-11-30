@@ -57,9 +57,8 @@
 
 #include <Eigen/Core>
 
-#include <geometry_msgs/msg/twist.hpp>
-
 #include "teb_local_planner/equivalence_relations.h"
+#include "teb_local_planner/planner_interface.h"
 #include "teb_local_planner/pose_se2.h"
 #include "teb_local_planner/teb_config.h"
 
@@ -108,7 +107,7 @@ class GraphSearchInterface
 {
 public:
 
-  virtual void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false) = 0;
+  virtual void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const Velocity2D* start_velocity, bool free_goal_vel = false) = 0;
 
   /**
    * @brief Clear any existing graph of the homotopy class search
@@ -139,7 +138,7 @@ protected:
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed, otherwise the final velocity will be zero (default: false)
    */
 
-  void DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>& visited, const HcGraphVertexType& goal, double start_orientation, double goal_orientation, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false);
+  void DepthFirst(HcGraph& g, std::vector<HcGraphVertexType>& visited, const HcGraphVertexType& goal, double start_orientation, double goal_orientation, const Velocity2D* start_velocity, bool free_goal_vel = false);
 
 protected:
     const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
@@ -174,7 +173,7 @@ public:
    * @param start_velocity start velocity (optional)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed, otherwise the final velocity will be zero (default: false)
    */
-  virtual void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false);
+  virtual void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const Velocity2D* start_velocity, bool free_goal_vel = false) override;
 };
 
 
@@ -205,7 +204,7 @@ public:
    * @param start_velocity start velocity (optional)
    * @param free_goal_vel if \c true, a nonzero final velocity at the goal pose is allowed, otherwise the final velocity will be zero (default: false)
    */
-  virtual void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const geometry_msgs::msg::Twist* start_velocity, bool free_goal_vel = false);
+  virtual void createGraph(const PoseSE2& start, const PoseSE2& goal, double dist_to_obst, double obstacle_heading_threshold, const Velocity2D* start_velocity, bool free_goal_vel = false) override;
 
 private:
     boost::random::mt19937 rnd_generator_; //!< Random number generator used by createProbRoadmapGraph to sample graph keypoints.
